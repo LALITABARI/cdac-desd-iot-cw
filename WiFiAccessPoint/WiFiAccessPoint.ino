@@ -1,14 +1,6 @@
 /*
-  WiFiAccessPoint.ino creates a WiFi access point and provides a web server on it.
-
-  Steps:
-  1. Connect to the access point "yourAp"
-  2. Point your web browser to http://192.168.4.1/H to turn the LED on or http://192.168.4.1/L to turn it off
-     OR
-     Run raw TCP "GET /H" and "GET /L" on PuTTY terminal with 192.168.4.1 as IP address and 80 as port
-
-  Created for arduino-esp32 on 04 July, 2018
-  by Elochukwu Ifediora (fedy0)
+  ESP32 Access Point (Server)
+  Creates a local Wi-Fi network and listens for two numbers from a connected client.
 */
 
 #include <Arduino.h>
@@ -17,83 +9,117 @@
 #include <WiFiAP.h>
 
 #ifndef LED_BUILTIN
-#define LED_BUILTIN 2  // Set the GPIO pin where you connected your test LED or comment this line out if your dev board has a built-in LED
+#define LED_BUILTIN 2 
 #endif
 
-// Set these to your desired credentials.
-const char *ssid = "yourAP";
-const char *password = "yourPassword";
+// Wi-Fi Credentials for the AP
+const char *ssid = "AP2-Station";
+const char *password = "123456789"; 
 
+// Start TCP server on port 80
 NetworkServer server(80);
 
-void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+void blink(int value)
+{
+  for(int i=0; i<value; i++)
+  {
+    digitalWrite(LED_BUILTIN , HIGH); 
+    delay(100);
+    digitalWrite(LED_BUILTIN , LOW); 
+    delay(100); 
+  }
+}
+
+void check_nums(int val1 , int val2)
+{
+  if(val1 > 50)
+  {
+    blink(4); 
+    Serial.println("Number 1 is greater than 50.");
+  }
+  if(val2 > 50)
+  {
+    blink(4); 
+    Serial.println("Number 2 is greater than 50.");
+  }
+}
+void setup() 
+{
+  pinMode(LED_BUILTIN , OUTPUT);
 
   Serial.begin(115200);
   Serial.println();
-  Serial.println("Configuring access point...");
+  Serial.println("Configuring Access Point...");
 
-  // You can remove the password parameter if you want the AP to be open.
-  // a valid password must have more than 7 characters
-  if (!WiFi.softAP(ssid, password)) {
-    log_e("Soft AP creation failed.");
+  // Create the Access Point
+  if (!WiFi.softAP(ssid, password))
+  {
+    Serial.println("Soft AP creation failed.");
     while (1);
   }
-  IPAddress myIP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(myIP);
-  server.begin();
 
-  Serial.println("Server started");
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("AP IP Address: ");
+  Serial.println(myIP); // Default is usually 192.168.4.1
+
+  server.begin();
+  Serial.println("Server started, waiting for Station...");
 }
 
-void loop() {
-  NetworkClient client = server.accept();  // listen for incoming clients
+void loop() 
+{
+  // Listen for incoming clients (the Station)
+  NetworkClient client = server.accept();
 
-  if (client) {                     // if you get a client,
-    Serial.println("New Client.");  // print a message out the serial port
-    String currentLine = "";        // make a String to hold incoming data from the client
-    while (client.connected()) {    // loop while the client's connected
-      if (client.available()) {     // if there's bytes to read from the client,
-        char c = client.read();     // read a byte, then
-        Serial.write(c);            // print it out the serial monitor
-        if (c == '\n') {            // if the byte is a newline character
+  if (client)
+  {
+    Serial.println("\n--- New Station Connected ---");
+    blink(2); 
+    String incomingData = "";
 
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
+    while (client.connected() || client.available())
+    {
+      if (client.available())
+      {
+        //Serial.print("Debug 1\n"); 
+        char c = client.read();
+        
+        // Read until a newline character is encountered
+        if (c == 10) {
 
-            // the content of the HTTP response follows the header:
-            client.print("Click <a href=\"/H\">here</a> to turn ON the LED.<br>");
-            client.print("Click <a href=\"/L\">here</a> to turn OFF the LED.<br>");
+          Serial.print("Received Raw Data: ");
+          Serial.println(incomingData);
 
-            // The HTTP response ends with another blank line:
-            client.println();
-            // break out of the while loop:
-            break;
-          } else {  // if you got a newline, then clear currentLine:
-            currentLine = "";
+          // Find the comma separating the two numbers
+          int commaIndex = incomingData.indexOf(',');
+          if (commaIndex != -1) {
+            String num1_str = incomingData.substring(0, commaIndex);
+            String num2_str = incomingData.substring(commaIndex + 1);
+
+            // Convert strings to integers or floats
+            int num1 = num1_str.toInt();
+            int num2 = num2_str.toInt();
+
+            
+
+            Serial.println("Parsed Data:");
+            Serial.print("  Number 1: "); Serial.println(num1);
+            Serial.print("  Number 2: "); Serial.println(num2);
+            check_nums(num1 , num2); 
+          } else {
+            Serial.println("Error: Data format invalid. Expected 'num1,num2'");
           }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
-        }
-
-        // Check to see if the client request was "GET /H" or "GET /L":
-        if (currentLine.endsWith("GET /H")) {
-          digitalWrite(LED_BUILTIN, HIGH);  // GET /H turns the LED on
-        }
-        if (currentLine.endsWith("GET /L")) {
-          digitalWrite(LED_BUILTIN, LOW);  // GET /L turns the LED off
+          
+          break; // Exit loop after processing the message
+        } else if (c != '\r')
+        {
+          incomingData += c; // Build the string
         }
       }
     }
-    // close the connection:
+    
+    // Close connection
     client.stop();
-    Serial.println("Client Disconnected.");
+    Serial.println("--- Station Disconnected. ---");
   }
 }
